@@ -1,8 +1,7 @@
 (ns scratch
   (:require [clojure.data.json :as json]
             [clojure.java.io :as io]
-            [contajners.core :as c]
-            [contajners.jvm-runtime :as rt]))
+            [contajners.core :as c]))
 
 (def images-docker (c/client {:engine   :docker
                               :category :images
@@ -13,6 +12,10 @@
                                   :category :containers
                                   :version  "v1.44"
                                   :conn     {:uri "unix:///var/run/docker.sock"}}))
+
+(c/categories :docker "v1.44")
+(c/ops images-docker)
+(c/ops containers-docker)
 
 (defn wait-read-all-stream [type stream]
   (with-open [reader (io/reader stream)]
@@ -55,13 +58,18 @@
                                                 :Cmd  ["clojure" "-M" "solution.clj"]}})
       ; Add files to created container
       ; tar --no-xattr --no-mac-metadata -czvf src.tar.gz -C example .
-      add-files-result (rt/request {:client (rt/client "unix:///var/run/docker.sock" {})
-                                    :method :put
-                                    :path   "/v1.44/containers/clojure/archive"
-                                    :query-params {:path "/usr/src/app"}
-                                    :body (-> "src.tar.gz"
-                                              io/file
-                                              io/input-stream)})
+      add-files-result (wait-read-all-stream :text
+                                             (c/invoke containers-docker
+                                                       {:op     :PutContainerArchive
+                                                        :params {:id container-name
+                                                                 :path "/usr/src/app"}
+                                                        :data (-> "src.tar.gz"
+                                                                  io/file
+                                                                  io/input-stream)
+                                                        :as     :stream
+                                                        :throw-exceptions true
+                                                        :throw-entire-message true}))
+
       ; Container start
       container-start-result (c/invoke containers-docker
                                        {:op     :ContainerStart
@@ -87,3 +95,8 @@
    :container-wait-result container-wait-result
    :container-logs container-logs
    :container-prune-result container-prune-result})
+
+(comment
+  (def image-name "clojure:temurin-11-tools-deps")
+  (def container-name "clojure")
+  (c/invoke containers-docker {:op :ContainerPrune}))
